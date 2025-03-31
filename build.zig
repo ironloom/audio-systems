@@ -19,6 +19,7 @@ pub fn build(b: *std.Build) !void {
             lib_mod.addFrameworkPath(system_sdk.path("macos12/System/Library/Frameworks"));
 
             lib_mod.linkFramework("CoreFoundation", .{ .needed = true });
+            lib_mod.linkFramework("AudioToolbox", .{ .needed = true });
         },
         .linux => {
             if (target.result.cpu.arch.isX86()) {
