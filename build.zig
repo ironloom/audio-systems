@@ -12,12 +12,17 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const zutils_dep = b.dependency("zigutils", .{});
+    const zutils_mod = zutils_dep.module("zigutils");
+
     const lib_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
+
+    lib_mod.addImport("zigutils", zutils_mod);
 
     const cflags = [_][]const u8{
         "-std=c11",

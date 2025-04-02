@@ -1,19 +1,10 @@
 const std = @import("std");
+const utils = @import("zigutils");
 const c = @cImport({
     @cInclude("soundio/soundio.h");
     @cInclude("stdlib.h");
 });
 
-inline fn NULL(comptime T: type) T {
-    return @ptrFromInt(@as(c_int, 0));
-}
-inline fn isNull(ptr: anytype) bool {
-    return switch (@typeInfo(@TypeOf(ptr))) {
-        .pointer => @intFromPtr(ptr) == 0,
-        .null => true,
-        else => false,
-    };
-}
 const PI = std.math.pi;
 var seconds_offset: f32 = 0.0;
 
@@ -32,7 +23,7 @@ fn writeCallback(outstream: [*c]c.SoundIoOutStream, frame_count_min: c_int, fram
     const float_sample_rate: f32 = @floatFromInt(outstream.?.*.sample_rate);
     const seconds_per_frame: f32 = 1 / float_sample_rate;
 
-    var areas = NULL([*c]c.SoundIoChannelArea);
+    var areas = utils.NULL([*c]c.SoundIoChannelArea);
     var frames_left = frame_count_max;
 
     while (frames_left > 0) {
@@ -53,7 +44,7 @@ fn writeCallback(outstream: [*c]c.SoundIoOutStream, frame_count_min: c_int, fram
         const radians_per_second: comptime_float = pitch * 2.0 * PI;
 
         for (0..@intCast(frame_count)) |frame| {
-            const sample = std.math.sin((seconds_offset + @as(f32, @floatFromInt(frame)) * seconds_per_frame) * radians_per_second);
+            const sample: f32 = std.math.sin((seconds_offset + @as(f32, @floatFromInt(frame)) * seconds_per_frame) * radians_per_second);
             for (0..@intCast(layout.?.*.channel_count)) |channel| {
                 const ptr: [*c]f32 =
                     @ptrFromInt(@intFromPtr(areas[channel].ptr) + @as(usize, @intCast(areas[channel].step)) * frame);
@@ -90,7 +81,7 @@ pub fn main() !void {
     }
 
     const device = c.soundio_get_output_device(soundIO, default_device_index);
-    if (isNull(device)) {
+    if (utils.isNull(device)) {
         std.log.err("Out of memory", .{});
         return;
     }
