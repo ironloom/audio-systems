@@ -6,8 +6,31 @@ const c = @cImport({
     @cInclude("sndfile.h");
 });
 
+const allocator = std.heap.smp_allocator;
+
 const PI = std.math.pi;
 var seconds_offset: f32 = 0.0;
+
+const PassTrough = struct {
+    const Self = @This();
+
+    sf_info: c.SF_INFO,
+    infile: ?*c.SNDFILE,
+
+    pub fn create(sf_info: c.SF_INFO, infile: ?*c.SNDFILE) !*Self {
+        const ptr = try allocator.create(Self);
+        ptr.* = Self{
+            .sf_info = sf_info,
+            .infile = infile,
+        };
+
+        return ptr;
+    }
+
+    pub fn destroy(self: *Self) void {
+        allocator.destroy(self);
+    }
+};
 
 inline fn handleError(err: c_int, comptime meassage: []const u8) void {
     if (err == 0) return;
@@ -20,12 +43,15 @@ inline fn handleError(err: c_int, comptime meassage: []const u8) void {
 fn writeCallback(outstream: [*c]c.SoundIoOutStream, frame_count_min: c_int, frame_count_max: c_int) callconv(.c) void {
     _ = frame_count_min;
 
+    const passtrough: *PassTrough = @ptrCast(@alignCast(outstream.?.*.userdata orelse return));
+
     const layout: [*c]c.SoundIoChannelLayout = &(outstream.?.*.layout);
     const float_sample_rate: f32 = @floatFromInt(outstream.?.*.sample_rate);
     const seconds_per_frame: f32 = 1 / float_sample_rate;
 
     var areas = utils.NULL([*c]c.SoundIoChannelArea);
     var frames_left = frame_count_max;
+    const channels = passtrough.sf_info.channels;
 
     while (frames_left > 0) {
         var frame_count = frames_left;
@@ -41,15 +67,17 @@ fn writeCallback(outstream: [*c]c.SoundIoOutStream, frame_count_min: c_int, fram
 
         if (frame_count == 0) break;
 
-        const pitch: comptime_float = 440.0;
-        const radians_per_second: comptime_float = pitch * 2.0 * PI;
+        const buffer = allocator.alloc(f32, utils.tousize(frame_count * channels)) catch continue;
+        defer allocator.free(buffer);
 
-        for (0..@intCast(frame_count)) |frame| {
-            const sample: f32 = std.math.sin((seconds_offset + @as(f32, @floatFromInt(frame)) * seconds_per_frame) * radians_per_second);
+        const frames: c.sf_count_t = @intCast(frame_count);
+        const readcount: usize = utils.tousize(c.sf_readf_float(passtrough.infile, buffer.ptr, frames));
+
+        for (0..readcount) |frame| {
             for (0..@intCast(layout.?.*.channel_count)) |channel| {
                 const ptr: [*c]f32 =
                     @ptrFromInt(@intFromPtr(areas[channel].ptr) + @as(usize, @intCast(areas[channel].step)) * frame);
-                ptr.* = sample;
+                ptr.* = buffer[frame * utils.tousize(channels) + channel];
             }
         }
 
@@ -89,6 +117,26 @@ pub fn main() !void {
 
     std.log.debug("Output device: {s}", .{device.?.*.name});
     const outstream = c.soundio_outstream_create(device);
+    if (utils.isNull(outstream)) {
+        std.log.debug("out of memory", .{});
+        return;
+    }
+
+    var info: c.SF_INFO = undefined;
+    const infile: ?*c.SNDFILE = c.sf_open("./main_menu.mp3", c.SFM_READ, &info);
+
+    if (utils.isNull(infile)) {
+        std.log.err("Infile was null", .{});
+        return;
+    }
+
+    var mypasstrough = try PassTrough.create(
+        info,
+        infile,
+    );
+    defer mypasstrough.destroy();
+
+    outstream.?.*.userdata = @as(?*anyopaque, @ptrCast(@alignCast(mypasstrough)));
     outstream.?.*.format = c.SoundIoFormatFloat32NE;
     outstream.?.*.write_callback = writeCallback;
 

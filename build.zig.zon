@@ -20,10 +20,6 @@
             .url = "git+https://github.com/ironloom/zigutils#2dc09c6c2ca703a16deada29cbfe0999550cbef9",
             .hash = "zigutils-0.0.1--_2KFWwbAACTxN7xKKCaVUR4T6Ha2YXbOkFwg7Sr3xri",
         },
-        .libsndfile = .{
-            .url = "git+https://github.com/libsndfile/libsndfile#0d3f80b7394368623df558d8ba3fee6348584d4d",
-            .hash = "12205cebfa8a6dd8005c33000d86b6751ace4b4d2ec66b100a000b98ae88c2e7dd38",
-        },
     },
     .paths = .{
         "build.zig",

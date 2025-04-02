@@ -15,8 +15,6 @@ pub fn build(b: *std.Build) !void {
     const zutils_dep = b.dependency("zigutils", .{});
     const zutils_mod = zutils_dep.module("zigutils");
 
-    const sndFileLazyPath = b.dependency("libsndfile", .{}).path("");
-
     const lib_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -24,9 +22,7 @@ pub fn build(b: *std.Build) !void {
         .link_libc = true,
     });
 
-    lib_mod.addIncludePath(.{
-        .cwd_relative = b.pathJoin(&.{ sndFileLazyPath.getPath(b), "include" }),
-    });
+    lib_mod.linkSystemLibrary("sndfile", .{ .needed = true });
 
     lib_mod.addImport("zigutils", zutils_mod);
 
@@ -165,4 +161,51 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+}
+fn buildSNDFile(b: *std.Build, args: struct {
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    dep_path: std.Build.LazyPath,
+}) *std.Build.Step.Run {
+    const sndfile_path = args.dep_path.getPath(b); // LazyPath to string
+
+    const libsnd_configure = b.addSystemCommand(&.{
+        "cmake",
+        "-G",
+        "Ninja",
+        "-B",
+        ".zig-cache/libsndfile",
+        "-S",
+        sndfile_path,
+        b.fmt("-DCMAKE_BUILD_TYPE={s}", .{switch (args.optimize) {
+            .Debug => "Debug",
+            .ReleaseFast => "Release",
+            .ReleaseSafe => "RelWithDebInfo",
+            .ReleaseSmall => "MinSizeRel",
+        }}),
+        "-DENABLE_EXTERNAL_LIBS=OFF",
+        "-DENABLE_MPEG=OFF",
+    });
+    // static link in Windows
+    if (args.target.result.os.tag == .windows)
+        libsnd_configure.addArgs(&.{
+            "-DBUILD_SHARED_LIBS=OFF",
+        });
+
+    const libsnd_build = b.addSystemCommand(&.{
+        "cmake",
+        "--build",
+        ".zig-cache/libsndfile",
+    });
+    if (args.target.result.abi == .msvc) {
+        libsnd_build.addArgs(&.{
+            "--config",
+            b.fmt("{s}", .{switch (args.optimize) {
+                .Debug => "Debug",
+                else => "Release",
+            }}),
+        });
+    }
+    libsnd_build.step.dependOn(&libsnd_configure.step);
+    return libsnd_build;
 }
