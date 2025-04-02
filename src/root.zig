@@ -3,6 +3,7 @@ const utils = @import("zigutils");
 const c = @cImport({
     @cInclude("soundio/soundio.h");
     @cInclude("stdlib.h");
+    @cInclude("sndfile.h");
 });
 
 const PI = std.math.pi;

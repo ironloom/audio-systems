@@ -15,11 +15,17 @@ pub fn build(b: *std.Build) !void {
     const zutils_dep = b.dependency("zigutils", .{});
     const zutils_mod = zutils_dep.module("zigutils");
 
+    const sndFileLazyPath = b.dependency("libsndfile", .{}).path("");
+
     const lib_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+    });
+
+    lib_mod.addIncludePath(.{
+        .cwd_relative = b.pathJoin(&.{ sndFileLazyPath.getPath(b), "include" }),
     });
 
     lib_mod.addImport("zigutils", zutils_mod);
