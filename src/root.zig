@@ -1,191 +1,162 @@
 const std = @import("std");
 const utils = @import("zigutils");
-const c = @cImport({
-    @cInclude("soundio/soundio.h");
-    @cInclude("stdlib.h");
-    @cInclude("sndfile.h");
-});
+const zaudio = @import("zaudio");
+const uuid = @import("uuid");
+
+/// The handle type returned by the system. This is done, so the package can be
+/// used as a dynamic library across languages.
+/// **NOTE**: A correct handle won't have `0` value. `0` indicates an invalid handle.
+pub const Handle = u64;
+pub const ASStatus = u64;
 
 const allocator = std.heap.smp_allocator;
+const HandlePointerPair = struct {
+    var counter: u64 = 0;
 
-const PI = std.math.pi;
-var seconds_offset: f32 = 0.0;
-
-const Sound = struct {
     const Self = @This();
 
-    sf_info: c.SF_INFO,
-    infile: ?*c.SNDFILE,
-    volume: f64 = 0.1,
-    paused: bool = true,
+    handle: Handle,
+    ptr: ?*zaudio.Sound = null,
+    isAlive: bool = true,
 
-    pub fn create(sf_info: c.SF_INFO, infile: ?*c.SNDFILE) !*Self {
-        const ptr = try allocator.create(Self);
-        ptr.* = Self{
-            .sf_info = sf_info,
-            .infile = infile,
+    pub fn create(rel_path: [:0]const u8) !Self {
+        if (counter == std.math.maxInt(u64))
+            counter = 0;
+
+        counter += 1;
+
+        return Self{
+            .handle = counter,
+            .ptr = if (engine) |e|
+                try e.createSoundFromFile(rel_path, .{
+                    .flags = .{
+                        .stream = true,
+                    },
+                })
+            else
+                null,
         };
-
-        return ptr;
-    }
-
-    pub fn createFromFile(path: [*c]const u8) !*Self {
-        var info: c.SF_INFO = undefined;
-        const infile: ?*c.SNDFILE = c.sf_open(path, c.SFM_READ, &info);
-
-        return create(info, infile);
     }
 
     pub fn destroy(self: *Self) void {
-        _ = c.sf_close(self.infile);
-        allocator.destroy(self);
+        if (!self.isAlive) return;
+        self.isAlive = false;
+
+        const music = self.ptr orelse return;
+        music.destroy();
     }
 };
 
-inline fn handleError(err: c_int, comptime meassage: []const u8) void {
-    if (err == 0) return;
-    std.log.info("error code: {d}", .{err});
-    std.log.info(" - soundIO message: {s}", .{c.soundio_strerror(err)});
-    std.log.info(" - user message: {s}", .{meassage});
-    std.process.exit(1);
+const HANDLE_OK = 0;
+const HANDLE_NULLPTR = 1;
+const HANDLE_START_FAILED = 2;
+const HANDLE_STOP_FAILED = 3;
+const HANDLE_SEEK_ERROR = 4;
+const HANDLE_NOT_FOUND = 404;
+pub export fn strASStatus(status: ASStatus) void {
+    std.log.info("{s}", .{switch (status) {
+        HANDLE_OK => "OK",
+        HANDLE_NULLPTR => "HANDLE POINTS TO NULLPTR",
+        HANDLE_START_FAILED => "HANDLE START FAILED",
+        HANDLE_STOP_FAILED => "HANDLE STOP FAILED",
+        HANDLE_SEEK_ERROR => "HANDLE SEEK ERROR",
+        HANDLE_NOT_FOUND => "INCORRECT HANLDE (NOT FOUND)",
+        else => "UNKNOWN",
+    }});
 }
 
-fn writeCallback(outstream: [*c]c.SoundIoOutStream, frame_count_min: c_int, frame_count_max: c_int) callconv(.c) void {
-    _ = frame_count_min;
+var initalised: bool = false;
+var engine: ?*zaudio.Engine = null;
+var handle_poiner_pairs: std.ArrayList(HandlePointerPair) = undefined;
 
-    const passtrough: *Sound = @ptrCast(@alignCast(outstream.?.*.userdata orelse return));
-
-    _ = c.soundio_outstream_set_volume(outstream, passtrough.volume);
-    _ = c.soundio_outstream_pause(outstream, passtrough.paused);
-    if (passtrough.paused) return;
-
-    const layout: [*c]c.SoundIoChannelLayout = &(outstream.?.*.layout);
-    const float_sample_rate: f32 = @floatFromInt(outstream.?.*.sample_rate);
-    const seconds_per_frame: f32 = 1 / float_sample_rate;
-
-    var areas = utils.NULL([*c]c.SoundIoChannelArea);
-    var frames_left = frame_count_max;
-    const channels = passtrough.sf_info.channels;
-
-    while (frames_left > 0) {
-        var frame_count = frames_left;
-
-        handleError(
-            c.soundio_outstream_begin_write(
-                outstream,
-                &areas,
-                &frame_count,
-            ),
-            "Outstream begin write failed",
-        );
-
-        if (frame_count == 0) break;
-
-        const buffer = allocator.alloc(f32, utils.tousize(frame_count * channels)) catch continue;
-        defer allocator.free(buffer);
-
-        const frames: c.sf_count_t = @intCast(frame_count);
-        const readcount: usize = utils.tousize(c.sf_readf_float(passtrough.infile, buffer.ptr, frames));
-
-        for (0..readcount) |frame| {
-            for (0..@intCast(layout.?.*.channel_count)) |channel| {
-                const ptr: [*c]f32 =
-                    @ptrFromInt(@intFromPtr(areas[channel].ptr) + @as(usize, @intCast(areas[channel].step)) * frame);
-                ptr.* = buffer[frame * utils.tousize(channels) + channel];
-            }
+fn getHandlePtrPair(handle: Handle) ?HandlePointerPair {
+    for (handle_poiner_pairs.items, 0..) |elem, index| {
+        if (handle != elem.handle) continue;
+        if (!elem.isAlive) {
+            _ = handle_poiner_pairs.swapRemove(index);
+            return null;
         }
 
-        seconds_offset = @rem(seconds_offset + seconds_per_frame * @as(f32, @floatFromInt(frame_count)), @as(comptime_float, 1.0));
-
-        handleError(
-            c.soundio_outstream_end_write(outstream),
-            "Outstream write end failed!",
-        );
-
-        frames_left -= frame_count;
+        return elem;
     }
+    return null;
 }
 
-pub fn main() !void {
-    const soundIO = c.soundio_create();
-    defer c.soundio_destroy(soundIO);
+pub export fn init() void {
+    zaudio.init(allocator);
+    engine = zaudio.Engine.create(null) catch return;
+    handle_poiner_pairs = .init(allocator);
 
-    handleError(
-        c.soundio_connect(soundIO),
-        "Failed to connect soundIO",
-    );
+    initalised = true;
+}
 
-    c.soundio_flush_events(soundIO);
-
-    const default_device_index = c.soundio_default_output_device_index(soundIO);
-    if (default_device_index < 0) {
-        std.log.err("No device found", .{});
+pub export fn deinit() void {
+    if (!initalised)
         return;
+
+    zaudio.deinit();
+    if (engine) |e| e.destroy();
+    handle_poiner_pairs.deinit();
+}
+
+pub export fn new(filepath: [*c]const u8) Handle {
+    if (!initalised)
+        return 0;
+
+    const spanned: [:0]u8 = std.mem.span(@constCast(filepath));
+
+    const new_pair = HandlePointerPair.create(spanned) catch return 0;
+    handle_poiner_pairs.append(new_pair) catch return 0;
+
+    return new_pair.handle;
+}
+
+pub export fn remove(handle: Handle) ASStatus {
+    for (handle_poiner_pairs.items, 0..) |elem, index| {
+        if (handle != elem.handle) continue;
+
+        _ = handle_poiner_pairs.swapRemove(index);
+        return HANDLE_OK;
     }
+    return HANDLE_NOT_FOUND;
+}
 
-    const device = c.soundio_get_output_device(soundIO, default_device_index);
-    if (utils.isNull(device)) {
-        std.log.err("Out of memory", .{});
-        return;
-    }
+pub export fn start(handle: Handle) ASStatus {
+    const elem = getHandlePtrPair(handle) orelse return HANDLE_NOT_FOUND;
+    elem.ptr.?.start() catch return HANDLE_START_FAILED;
+    return HANDLE_OK;
+}
 
-    std.log.debug("Output device: {s}", .{device.?.*.name});
-    // const outstream_1 = c.soundio_outstream_create(device);
-    // if (utils.isNull(outstream_1)) {
-    //     std.log.debug("out of memory", .{});
-    //     return;
-    // }
+pub export fn stop(handle: Handle) ASStatus {
+    const elem = getHandlePtrPair(handle) orelse return HANDLE_NOT_FOUND;
+    elem.ptr.?.stop() catch return HANDLE_STOP_FAILED;
+    return HANDLE_OK;
+}
 
-    // var mypasstrough = try PassTrough.createFromFile("main_menu.mp3");
-    // defer mypasstrough.destroy();
+pub export fn setVolume(handle: Handle, volume: f32) ASStatus {
+    const elem = getHandlePtrPair(handle) orelse return HANDLE_NOT_FOUND;
+    elem.ptr.?.setVolume(volume);
+    return HANDLE_OK;
+}
 
-    // outstream_1.?.*.userdata = @as(?*anyopaque, @ptrCast(@alignCast(mypasstrough)));
-    // outstream_1.?.*.format = c.SoundIoFormatFloat32NE;
-    // outstream_1.?.*.write_callback = writeCallback;
+pub export fn getVolume(handle: Handle) f32 {
+    const elem = getHandlePtrPair(handle) orelse return 1;
+    return elem.ptr.?.getVolume();
+}
 
-    // handleError(
-    //     c.soundio_outstream_open(outstream_1),
-    //     "Failed to open outstream",
-    // );
+pub export fn restart(handle: Handle) ASStatus {
+    const elem = getHandlePtrPair(handle) orelse return HANDLE_NOT_FOUND;
+    elem.ptr.?.seekToSecond(0) catch return HANDLE_SEEK_ERROR;
+    return HANDLE_OK;
+}
 
-    // if (outstream_1.?.*.layout_error != 0)
-    //     std.log.err("unable to set channel layout: {s}", .{c.soundio_strerror(outstream_1.?.*.layout_error)});
+pub export fn seekToSecond(handle: Handle, second: f32) ASStatus {
+    const elem = getHandlePtrPair(handle) orelse return HANDLE_NOT_FOUND;
+    elem.ptr.?.seekToSecond(second) catch return HANDLE_SEEK_ERROR;
+    return HANDLE_OK;
+}
 
-    // handleError(
-    //     c.soundio_outstream_start(outstream_1),
-    //     "Failed to start outstream",
-    // );
-
-    const outstream_2 = c.soundio_outstream_create(device);
-    if (utils.isNull(outstream_2)) {
-        std.log.debug("out of memory", .{});
-        return;
-    }
-
-    var doom = try Sound.createFromFile("music/doom.mp3");
-    defer doom.destroy();
-
-    outstream_2.?.*.userdata = @as(?*anyopaque, @ptrCast(@alignCast(doom)));
-    outstream_2.?.*.format = c.SoundIoFormatFloat32NE;
-    outstream_2.?.*.write_callback = writeCallback;
-
-    handleError(
-        c.soundio_outstream_open(outstream_2),
-        "Failed to open outstream",
-    );
-
-    if (outstream_2.?.*.layout_error != 0)
-        std.log.err("unable to set channel layout: {s}", .{c.soundio_strerror(outstream_2.?.*.layout_error)});
-
-    handleError(
-        c.soundio_outstream_start(outstream_2),
-        "Failed to start outstream",
-    );
-
-    // while (true) {
-    //     std.log.debug("asd", .{});
-    // }
-    c.soundio_wait_events(soundIO);
-
-    defer c.soundio_device_unref(device);
+pub export fn isPlaying(handle: Handle) bool {
+    const elem = getHandlePtrPair(handle) orelse return false;
+    return elem.ptr.?.isPlaying();
 }
