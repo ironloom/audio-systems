@@ -12,10 +12,10 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const zutils_dep = b.dependency("zigutils", .{});
+    const zutils_dep = b.dependency("zigutils", .{ .target = target, .optimize = optimize });
     const zutils_mod = zutils_dep.module("zigutils");
 
-    const zaudio_dep = b.dependency("zaudio", .{});
+    const zaudio_dep = b.dependency("zaudio", .{ .target = target, .optimize = optimize });
     const zaudio_mod = zaudio_dep.module("root");
 
     const uuid_dep = b.dependency("uuid", .{ .target = target, .optimize = optimize });
@@ -43,11 +43,6 @@ pub fn build(b: *std.Build) !void {
         .macos => {
             lib_mod.addLibraryPath(system_sdk.path("macos12/usr/lib"));
             lib_mod.addFrameworkPath(system_sdk.path("macos12/System/Library/Frameworks"));
-
-            lib_mod.linkFramework("CoreFoundation", .{ .needed = true });
-            lib_mod.linkFramework("CoreAudio", .{ .needed = true });
-            lib_mod.linkFramework("AudioUnit", .{ .needed = true });
-            lib_mod.linkFramework("AudioToolbox", .{ .needed = true });
         },
         .linux => {
             if (target.result.cpu.arch.isX86()) {
@@ -66,8 +61,6 @@ pub fn build(b: *std.Build) !void {
         .name = "audio_systems",
         .root_module = lib_mod,
     });
-    lib.linkLibrary(zaudio_dep.artifact("miniaudio"));
-    lib.linkLibrary(uuid_dep.artifact("uuid"));
 
     b.installArtifact(lib);
 
@@ -114,51 +107,4 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
-}
-fn buildSNDFile(b: *std.Build, args: struct {
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    dep_path: std.Build.LazyPath,
-}) *std.Build.Step.Run {
-    const sndfile_path = args.dep_path.getPath(b); // LazyPath to string
-
-    const libsnd_configure = b.addSystemCommand(&.{
-        "cmake",
-        "-G",
-        "Ninja",
-        "-B",
-        ".zig-cache/libsndfile",
-        "-S",
-        sndfile_path,
-        b.fmt("-DCMAKE_BUILD_TYPE={s}", .{switch (args.optimize) {
-            .Debug => "Debug",
-            .ReleaseFast => "Release",
-            .ReleaseSafe => "RelWithDebInfo",
-            .ReleaseSmall => "MinSizeRel",
-        }}),
-        "-DENABLE_EXTERNAL_LIBS=OFF",
-        "-DENABLE_MPEG=OFF",
-    });
-    // static link in Windows
-    if (args.target.result.os.tag == .windows)
-        libsnd_configure.addArgs(&.{
-            "-DBUILD_SHARED_LIBS=OFF",
-        });
-
-    const libsnd_build = b.addSystemCommand(&.{
-        "cmake",
-        "--build",
-        ".zig-cache/libsndfile",
-    });
-    if (args.target.result.abi == .msvc) {
-        libsnd_build.addArgs(&.{
-            "--config",
-            b.fmt("{s}", .{switch (args.optimize) {
-                .Debug => "Debug",
-                else => "Release",
-            }}),
-        });
-    }
-    libsnd_build.step.dependOn(&libsnd_configure.step);
-    return libsnd_build;
 }
