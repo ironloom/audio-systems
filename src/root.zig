@@ -99,7 +99,7 @@ pub export fn deinit() void {
     handle_poiner_pairs.deinit();
 }
 
-pub export fn new(filepath: [*:0]const u8) Handle {
+pub export fn create(filepath: [*:0]const u8) Handle {
     if (!initalised)
         return 0;
 
@@ -111,7 +111,7 @@ pub export fn new(filepath: [*:0]const u8) Handle {
     return new_pair.handle;
 }
 
-pub export fn remove(handle: Handle) ASStatus {
+pub export fn destroy(handle: Handle) ASStatus {
     for (handle_poiner_pairs.items, 0..) |elem, index| {
         if (handle != elem.handle) continue;
 
