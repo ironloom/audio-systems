@@ -11,11 +11,13 @@ const allocator = std.heap.smp_allocator;
 const PI = std.math.pi;
 var seconds_offset: f32 = 0.0;
 
-const PassTrough = struct {
+const Sound = struct {
     const Self = @This();
 
     sf_info: c.SF_INFO,
     infile: ?*c.SNDFILE,
+    volume: f64 = 0.1,
+    paused: bool = true,
 
     pub fn create(sf_info: c.SF_INFO, infile: ?*c.SNDFILE) !*Self {
         const ptr = try allocator.create(Self);
@@ -27,7 +29,15 @@ const PassTrough = struct {
         return ptr;
     }
 
+    pub fn createFromFile(path: [*c]const u8) !*Self {
+        var info: c.SF_INFO = undefined;
+        const infile: ?*c.SNDFILE = c.sf_open(path, c.SFM_READ, &info);
+
+        return create(info, infile);
+    }
+
     pub fn destroy(self: *Self) void {
+        _ = c.sf_close(self.infile);
         allocator.destroy(self);
     }
 };
@@ -43,7 +53,11 @@ inline fn handleError(err: c_int, comptime meassage: []const u8) void {
 fn writeCallback(outstream: [*c]c.SoundIoOutStream, frame_count_min: c_int, frame_count_max: c_int) callconv(.c) void {
     _ = frame_count_min;
 
-    const passtrough: *PassTrough = @ptrCast(@alignCast(outstream.?.*.userdata orelse return));
+    const passtrough: *Sound = @ptrCast(@alignCast(outstream.?.*.userdata orelse return));
+
+    _ = c.soundio_outstream_set_volume(outstream, passtrough.volume);
+    _ = c.soundio_outstream_pause(outstream, passtrough.paused);
+    if (passtrough.paused) return;
 
     const layout: [*c]c.SoundIoChannelLayout = &(outstream.?.*.layout);
     const float_sample_rate: f32 = @floatFromInt(outstream.?.*.sample_rate);
@@ -116,46 +130,62 @@ pub fn main() !void {
     }
 
     std.log.debug("Output device: {s}", .{device.?.*.name});
-    const outstream = c.soundio_outstream_create(device);
-    if (utils.isNull(outstream)) {
+    // const outstream_1 = c.soundio_outstream_create(device);
+    // if (utils.isNull(outstream_1)) {
+    //     std.log.debug("out of memory", .{});
+    //     return;
+    // }
+
+    // var mypasstrough = try PassTrough.createFromFile("main_menu.mp3");
+    // defer mypasstrough.destroy();
+
+    // outstream_1.?.*.userdata = @as(?*anyopaque, @ptrCast(@alignCast(mypasstrough)));
+    // outstream_1.?.*.format = c.SoundIoFormatFloat32NE;
+    // outstream_1.?.*.write_callback = writeCallback;
+
+    // handleError(
+    //     c.soundio_outstream_open(outstream_1),
+    //     "Failed to open outstream",
+    // );
+
+    // if (outstream_1.?.*.layout_error != 0)
+    //     std.log.err("unable to set channel layout: {s}", .{c.soundio_strerror(outstream_1.?.*.layout_error)});
+
+    // handleError(
+    //     c.soundio_outstream_start(outstream_1),
+    //     "Failed to start outstream",
+    // );
+
+    const outstream_2 = c.soundio_outstream_create(device);
+    if (utils.isNull(outstream_2)) {
         std.log.debug("out of memory", .{});
         return;
     }
 
-    var info: c.SF_INFO = undefined;
-    const infile: ?*c.SNDFILE = c.sf_open("./main_menu.mp3", c.SFM_READ, &info);
+    var doom = try Sound.createFromFile("music/doom.mp3");
+    defer doom.destroy();
 
-    if (utils.isNull(infile)) {
-        std.log.err("Infile was null", .{});
-        return;
-    }
-
-    var mypasstrough = try PassTrough.create(
-        info,
-        infile,
-    );
-    defer mypasstrough.destroy();
-
-    outstream.?.*.userdata = @as(?*anyopaque, @ptrCast(@alignCast(mypasstrough)));
-    outstream.?.*.format = c.SoundIoFormatFloat32NE;
-    outstream.?.*.write_callback = writeCallback;
+    outstream_2.?.*.userdata = @as(?*anyopaque, @ptrCast(@alignCast(doom)));
+    outstream_2.?.*.format = c.SoundIoFormatFloat32NE;
+    outstream_2.?.*.write_callback = writeCallback;
 
     handleError(
-        c.soundio_outstream_open(outstream),
+        c.soundio_outstream_open(outstream_2),
         "Failed to open outstream",
     );
 
-    if (outstream.?.*.layout_error != 0)
-        std.log.err("unable to set channel layout: {s}", .{c.soundio_strerror(outstream.?.*.layout_error)});
+    if (outstream_2.?.*.layout_error != 0)
+        std.log.err("unable to set channel layout: {s}", .{c.soundio_strerror(outstream_2.?.*.layout_error)});
 
     handleError(
-        c.soundio_outstream_start(outstream),
+        c.soundio_outstream_start(outstream_2),
         "Failed to start outstream",
     );
 
-    while (true) {
-        c.soundio_wait_events(soundIO);
-    }
+    // while (true) {
+    //     std.log.debug("asd", .{});
+    // }
+    c.soundio_wait_events(soundIO);
 
     defer c.soundio_device_unref(device);
 }
