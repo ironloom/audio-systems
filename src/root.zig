@@ -99,7 +99,7 @@ pub export fn deinit() void {
     handle_poiner_pairs.deinit();
 }
 
-pub export fn new(filepath: [*c]const u8) Handle {
+pub export fn new(filepath: [*:0]const u8) Handle {
     if (!initalised)
         return 0;
 
