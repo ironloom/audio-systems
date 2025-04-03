@@ -10,8 +10,8 @@ pub fn main() !void {
     au_systems.init();
     defer au_systems.deinit();
 
-    const handle = au_systems.new("./music/doom.mp3");
-    defer _ = au_systems.remove(handle);
+    const handle = au_systems.create("./music/doom.mp3");
+    defer _ = au_systems.destroy(handle);
 
     if (handle == 0) @panic("Handle cannot be 0");
 
