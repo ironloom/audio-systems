@@ -25,6 +25,6 @@ pub fn main() !void {
 
     while (au_systems.isPlaying(handle)) {
         std.time.sleep(10 * std.time.ns_per_s);
-        _ = au_systems.restart(handle);
+        _ = au_systems.stop(handle);
     }
 }

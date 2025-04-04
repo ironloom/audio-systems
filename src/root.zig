@@ -39,7 +39,7 @@ const HandlePointerPair = struct {
     }
 
     pub fn destroy(self: *Self) void {
-        if (!self.isAlive) return;
+        if (!self.isAlive and self.ptr == null) return;
         self.isAlive = false;
 
         const music = self.ptr orelse return;
@@ -94,9 +94,13 @@ pub export fn deinit() void {
     if (!initalised)
         return;
 
-    zaudio.deinit();
-    if (engine) |e| e.destroy();
+    for (handle_poiner_pairs.items) |*item| {
+        item.destroy();
+    }
+
     handle_poiner_pairs.deinit();
+    if (engine) |e| e.destroy();
+    zaudio.deinit();
 }
 
 pub export fn create(filepath: [*:0]const u8) Handle {
@@ -112,9 +116,10 @@ pub export fn create(filepath: [*:0]const u8) Handle {
 }
 
 pub export fn destroy(handle: Handle) ASStatus {
-    for (handle_poiner_pairs.items, 0..) |elem, index| {
+    for (handle_poiner_pairs.items, 0..) |*elem, index| {
         if (handle != elem.handle) continue;
 
+        elem.destroy();
         _ = handle_poiner_pairs.swapRemove(index);
         return HANDLE_OK;
     }
