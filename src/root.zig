@@ -1,7 +1,7 @@
 const std = @import("std");
 const utils = @import("zigutils");
 const zaudio = @import("zaudio");
-const uuid = @import("uuid");
+
 
 /// The handle type returned by the system. This is done, so the package can be
 /// used as a dynamic library across languages.
@@ -17,7 +17,7 @@ const HandlePointerPair = struct {
 
     handle: Handle,
     ptr: ?*zaudio.Sound = null,
-    isAlive: bool = true,
+    is_alive: bool = true,
 
     pub fn create(rel_path: [:0]const u8) !Self {
         if (counter == std.math.maxInt(u64))
@@ -38,9 +38,16 @@ const HandlePointerPair = struct {
         };
     }
 
+    pub fn isAlive(self: *Self) bool {
+        if (self.ptr == null) {
+            self.is_alive = false;
+        }
+        return self.is_alive;
+    }
+
     pub fn destroy(self: *Self) void {
-        if (!self.isAlive and self.ptr == null) return;
-        self.isAlive = false;
+        if (!self.isAlive()) return;
+        self.is_alive = false;
 
         const music = self.ptr orelse return;
         music.destroy();
@@ -72,15 +79,16 @@ var initalised: bool = false;
 var engine: ?*zaudio.Engine = null;
 var handle_poiner_pairs: std.ArrayList(HandlePointerPair) = undefined;
 
-fn getHandlePtrPair(handle: Handle) ?HandlePointerPair {
-    for (handle_poiner_pairs.items, 0..) |elem, index| {
+fn getSoundPtr(handle: Handle) ?*zaudio.Sound {
+    for (handle_poiner_pairs.items, 0..) |*elem, index| {
         if (handle != elem.handle) continue;
-        if (!elem.isAlive) {
+        if (!elem.isAlive()) {
+            elem.destroy();
             _ = handle_poiner_pairs.swapRemove(index);
             return null;
         }
 
-        return elem;
+        return elem.ptr;
     }
     return null;
 }
@@ -121,7 +129,7 @@ pub export fn create(filepath: [*:0]const u8) Handle {
 }
 
 pub export fn destroy(handle: Handle) ASStatus {
-    for (handle_poiner_pairs.items, 0..) |elem, index| {
+    for (handle_poiner_pairs.items, 0..) |*elem, index| {
         if (handle != elem.handle) continue;
 
         elem.destroy();
@@ -135,8 +143,8 @@ pub export fn start(handle: Handle) ASStatus {
     if (!initalised)
         return ASSTATUS_ENGINE_NOT_INITALISED;
 
-    const elem = getHandlePtrPair(handle) orelse return ASSTATUS_NOT_FOUND;
-    elem.ptr.?.start() catch return ASSTATUS_START_FAILED;
+    const elem = getSoundPtr(handle) orelse return ASSTATUS_NOT_FOUND;
+    elem.start() catch return ASSTATUS_START_FAILED;
     return ASSTATUS_OK;
 }
 
@@ -144,8 +152,8 @@ pub export fn stop(handle: Handle) ASStatus {
     if (!initalised)
         return ASSTATUS_ENGINE_NOT_INITALISED;
 
-    const elem = getHandlePtrPair(handle) orelse return ASSTATUS_NOT_FOUND;
-    elem.ptr.?.stop() catch return ASSTATUS_STOP_FAILED;
+    const elem = getSoundPtr(handle) orelse return ASSTATUS_NOT_FOUND;
+    elem.stop() catch return ASSTATUS_STOP_FAILED;
     return ASSTATUS_OK;
 }
 
@@ -153,25 +161,25 @@ pub export fn setVolume(handle: Handle, volume: f32) ASStatus {
     if (!initalised)
         return ASSTATUS_ENGINE_NOT_INITALISED;
 
-    const elem = getHandlePtrPair(handle) orelse return ASSTATUS_NOT_FOUND;
-    elem.ptr.?.setVolume(volume);
+    const elem = getSoundPtr(handle) orelse return ASSTATUS_NOT_FOUND;
+    elem.setVolume(volume);
     return ASSTATUS_OK;
 }
 
 pub export fn getVolume(handle: Handle) f32 {
     if (!initalised)
-        return 1;
+        return 0;
 
-    const elem = getHandlePtrPair(handle) orelse return 1;
-    return elem.ptr.?.getVolume();
+    const elem = getSoundPtr(handle) orelse return 0;
+    return elem.getVolume();
 }
 
 pub export fn restart(handle: Handle) ASStatus {
     if (!initalised)
         return ASSTATUS_ENGINE_NOT_INITALISED;
 
-    const elem = getHandlePtrPair(handle) orelse return ASSTATUS_NOT_FOUND;
-    elem.ptr.?.seekToSecond(0) catch return ASSTATUS_SEEK_ERROR;
+    const elem = getSoundPtr(handle) orelse return ASSTATUS_NOT_FOUND;
+    elem.seekToSecond(0) catch return ASSTATUS_SEEK_ERROR;
     return ASSTATUS_OK;
 }
 
@@ -179,8 +187,8 @@ pub export fn seekToSecond(handle: Handle, second: f32) ASStatus {
     if (!initalised)
         return ASSTATUS_ENGINE_NOT_INITALISED;
 
-    const elem = getHandlePtrPair(handle) orelse return ASSTATUS_NOT_FOUND;
-    elem.ptr.?.seekToSecond(second) catch return ASSTATUS_SEEK_ERROR;
+    const elem = getSoundPtr(handle) orelse return ASSTATUS_NOT_FOUND;
+    elem.seekToSecond(second) catch return ASSTATUS_SEEK_ERROR;
     return ASSTATUS_OK;
 }
 
@@ -188,6 +196,24 @@ pub export fn isPlaying(handle: Handle) bool {
     if (!initalised)
         return false;
 
-    const elem = getHandlePtrPair(handle) orelse return false;
-    return elem.ptr.?.isPlaying();
+    const elem = getSoundPtr(handle) orelse return false;
+    return elem.isPlaying();
+}
+
+pub export fn setLooping(handle: Handle, to: bool) ASStatus {
+    if (initalised)
+        return ASSTATUS_ENGINE_NOT_INITALISED;
+
+    const elem = getSoundPtr(handle) orelse return ASSTATUS_NOT_FOUND;
+    elem.setLooping(to);
+
+    return ASSTATUS_OK;
+}
+
+pub export fn isLooping(handle: Handle) bool {
+    if (!initalised)
+        return false;
+
+    const elem = getSoundPtr(handle) orelse return false;
+    return elem.isLooping();
 }

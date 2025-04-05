@@ -8,7 +8,7 @@ const std = @import("std");
 pub fn main() !void {
     var err: au_systems.ASStatus = 0;
     au_systems.init();
-    defer au_systems.deinit();
+    defer _ = au_systems.deinit();
 
     const handle = au_systems.create("./music/doom.mp3");
     defer _ = au_systems.destroy(handle);

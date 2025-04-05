@@ -18,9 +18,6 @@ pub fn build(b: *std.Build) !void {
     const zaudio_dep = b.dependency("zaudio", .{ .target = target, .optimize = optimize });
     const zaudio_mod = zaudio_dep.module("root");
 
-    const uuid_dep = b.dependency("uuid", .{ .target = target, .optimize = optimize });
-    const uuid_mod = uuid_dep.module("uuid");
-
     const lib_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -30,10 +27,8 @@ pub fn build(b: *std.Build) !void {
 
     lib_mod.addImport("zigutils", zutils_mod);
     lib_mod.addImport("zaudio", zaudio_mod);
-    lib_mod.addImport("uuid", uuid_mod);
 
     lib_mod.linkLibrary(zaudio_dep.artifact("miniaudio"));
-    lib_mod.linkLibrary(uuid_dep.artifact("uuid"));
 
     if (b.lazyDependency("system_sdk", .{})) |system_sdk| switch (target.result.os.tag) {
         .windows => if (target.result.cpu.arch.isX86() and (target.result.abi.isGnu() or target.result.abi.isMusl())) {

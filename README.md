@@ -1,2 +1,3 @@
 # audio-systems
-The native Audio Handling Library you were looking for.
+
+This project is a cross-language compatible wrapper of [zaudio](https://github.com/zig-gamedev/zaudio).
