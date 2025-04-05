@@ -47,20 +47,23 @@ const HandlePointerPair = struct {
     }
 };
 
-const HANDLE_OK = 0;
-const HANDLE_NULLPTR = 1;
-const HANDLE_START_FAILED = 2;
-const HANDLE_STOP_FAILED = 3;
-const HANDLE_SEEK_ERROR = 4;
-const HANDLE_NOT_FOUND = 404;
+pub export const ASSTATUS_OK: u64 = 0;
+pub export const ASSTATUS_NULLPTR: u64 = 1;
+pub export const ASSTATUS_START_FAILED: u64 = 2;
+pub export const ASSTATUS_STOP_FAILED: u64 = 3;
+pub export const ASSTATUS_SEEK_ERROR: u64 = 4;
+pub export const ASSTATUS_ENGINE_NOT_INITALISED: u64 = 5;
+pub export const ASSTATUS_NOT_FOUND: u64 = 404;
+
 pub export fn strASStatus(status: ASStatus) void {
     std.log.info("{s}", .{switch (status) {
-        HANDLE_OK => "OK",
-        HANDLE_NULLPTR => "HANDLE POINTS TO NULLPTR",
-        HANDLE_START_FAILED => "HANDLE START FAILED",
-        HANDLE_STOP_FAILED => "HANDLE STOP FAILED",
-        HANDLE_SEEK_ERROR => "HANDLE SEEK ERROR",
-        HANDLE_NOT_FOUND => "INCORRECT HANLDE (NOT FOUND)",
+        ASSTATUS_OK => "OK",
+        ASSTATUS_NULLPTR => "POINTS TO NULLPTR",
+        ASSTATUS_START_FAILED => "START FAILED",
+        ASSTATUS_STOP_FAILED => "STOP FAILED",
+        ASSTATUS_SEEK_ERROR => "SEEK ERROR",
+        ASSTATUS_ENGINE_NOT_INITALISED => "ENGINE WASN'T INITALISED",
+        ASSTATUS_NOT_FOUND => "INCORRECT HANDLE NOT FOUND",
         else => "UNKNOWN",
     }});
 }
@@ -90,9 +93,9 @@ pub export fn init() void {
     initalised = true;
 }
 
-pub export fn deinit() void {
+pub export fn deinit() ASStatus {
     if (!initalised)
-        return;
+        return ASSTATUS_ENGINE_NOT_INITALISED;
 
     for (handle_poiner_pairs.items) |*item| {
         item.destroy();
@@ -101,6 +104,8 @@ pub export fn deinit() void {
     handle_poiner_pairs.deinit();
     if (engine) |e| e.destroy();
     zaudio.deinit();
+
+    return ASSTATUS_OK;
 }
 
 pub export fn create(filepath: [*:0]const u8) Handle {
@@ -116,52 +121,73 @@ pub export fn create(filepath: [*:0]const u8) Handle {
 }
 
 pub export fn destroy(handle: Handle) ASStatus {
-    for (handle_poiner_pairs.items, 0..) |*elem, index| {
+    for (handle_poiner_pairs.items, 0..) |elem, index| {
         if (handle != elem.handle) continue;
 
         elem.destroy();
         _ = handle_poiner_pairs.swapRemove(index);
-        return HANDLE_OK;
+        return ASSTATUS_OK;
     }
-    return HANDLE_NOT_FOUND;
+    return ASSTATUS_NOT_FOUND;
 }
 
 pub export fn start(handle: Handle) ASStatus {
-    const elem = getHandlePtrPair(handle) orelse return HANDLE_NOT_FOUND;
-    elem.ptr.?.start() catch return HANDLE_START_FAILED;
-    return HANDLE_OK;
+    if (!initalised)
+        return ASSTATUS_ENGINE_NOT_INITALISED;
+
+    const elem = getHandlePtrPair(handle) orelse return ASSTATUS_NOT_FOUND;
+    elem.ptr.?.start() catch return ASSTATUS_START_FAILED;
+    return ASSTATUS_OK;
 }
 
 pub export fn stop(handle: Handle) ASStatus {
-    const elem = getHandlePtrPair(handle) orelse return HANDLE_NOT_FOUND;
-    elem.ptr.?.stop() catch return HANDLE_STOP_FAILED;
-    return HANDLE_OK;
+    if (!initalised)
+        return ASSTATUS_ENGINE_NOT_INITALISED;
+
+    const elem = getHandlePtrPair(handle) orelse return ASSTATUS_NOT_FOUND;
+    elem.ptr.?.stop() catch return ASSTATUS_STOP_FAILED;
+    return ASSTATUS_OK;
 }
 
 pub export fn setVolume(handle: Handle, volume: f32) ASStatus {
-    const elem = getHandlePtrPair(handle) orelse return HANDLE_NOT_FOUND;
+    if (!initalised)
+        return ASSTATUS_ENGINE_NOT_INITALISED;
+
+    const elem = getHandlePtrPair(handle) orelse return ASSTATUS_NOT_FOUND;
     elem.ptr.?.setVolume(volume);
-    return HANDLE_OK;
+    return ASSTATUS_OK;
 }
 
 pub export fn getVolume(handle: Handle) f32 {
+    if (!initalised)
+        return 1;
+
     const elem = getHandlePtrPair(handle) orelse return 1;
     return elem.ptr.?.getVolume();
 }
 
 pub export fn restart(handle: Handle) ASStatus {
-    const elem = getHandlePtrPair(handle) orelse return HANDLE_NOT_FOUND;
-    elem.ptr.?.seekToSecond(0) catch return HANDLE_SEEK_ERROR;
-    return HANDLE_OK;
+    if (!initalised)
+        return ASSTATUS_ENGINE_NOT_INITALISED;
+
+    const elem = getHandlePtrPair(handle) orelse return ASSTATUS_NOT_FOUND;
+    elem.ptr.?.seekToSecond(0) catch return ASSTATUS_SEEK_ERROR;
+    return ASSTATUS_OK;
 }
 
 pub export fn seekToSecond(handle: Handle, second: f32) ASStatus {
-    const elem = getHandlePtrPair(handle) orelse return HANDLE_NOT_FOUND;
-    elem.ptr.?.seekToSecond(second) catch return HANDLE_SEEK_ERROR;
-    return HANDLE_OK;
+    if (!initalised)
+        return ASSTATUS_ENGINE_NOT_INITALISED;
+
+    const elem = getHandlePtrPair(handle) orelse return ASSTATUS_NOT_FOUND;
+    elem.ptr.?.seekToSecond(second) catch return ASSTATUS_SEEK_ERROR;
+    return ASSTATUS_OK;
 }
 
 pub export fn isPlaying(handle: Handle) bool {
+    if (!initalised)
+        return false;
+
     const elem = getHandlePtrPair(handle) orelse return false;
     return elem.ptr.?.isPlaying();
 }
